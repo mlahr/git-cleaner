@@ -247,7 +247,7 @@ func listBranches(ctx context.Context, kind BranchKind) ([]Branch, error) {
 	if kind == RemoteBranch {
 		ref = "refs/remotes"
 	}
-	format := "%(refname:short)%00%(objectname)%00%(committerdate:iso8601)%00%(authorname)%00%(authoremail)%00%(upstream:short)%00%(upstream:track)"
+	format := "%(refname)%00%(refname:short)%00%(objectname)%00%(committerdate:iso8601)%00%(authorname)%00%(authoremail)%00%(upstream:short)%00%(upstream:track)"
 	out, err := gitOutput(ctx, "for-each-ref", ref, "--format", format)
 	if err != nil {
 		return nil, err
@@ -258,30 +258,33 @@ func listBranches(ctx context.Context, kind BranchKind) ([]Branch, error) {
 			continue
 		}
 		parts := strings.Split(line, "\x00")
-		for len(parts) < 7 {
+		for len(parts) < 8 {
 			parts = append(parts, "")
 		}
-		name := parts[0]
-		if kind == RemoteBranch && strings.HasSuffix(name, "/HEAD") {
+		fullRef := parts[0]
+		name := parts[1]
+		if kind == RemoteBranch && (strings.HasSuffix(fullRef, "/HEAD") || !strings.Contains(name, "/")) {
 			continue
 		}
-		t, _ := time.Parse("2006-01-02 15:04:05 -0700", parts[2])
+		t, _ := time.Parse("2006-01-02 15:04:05 -0700", parts[3])
 		b := Branch{
 			Kind:          kind,
 			Name:          name,
 			ShortName:     name,
-			Hash:          parts[1],
+			Hash:          parts[2],
 			LastCommit:    t,
-			AuthorName:    parts[3],
-			AuthorEmail:   strings.Trim(parts[4], "<>"),
-			Upstream:      parts[5],
-			UpstreamTrack: parts[6],
+			AuthorName:    parts[4],
+			AuthorEmail:   strings.Trim(parts[5], "<>"),
+			Upstream:      parts[6],
+			UpstreamTrack: parts[7],
 		}
 		if kind == RemoteBranch {
 			remote, short, ok := strings.Cut(name, "/")
-			if ok {
+			if ok && short != "" {
 				b.Remote = remote
 				b.ShortName = short
+			} else {
+				continue
 			}
 		}
 		branches = append(branches, b)
@@ -336,19 +339,16 @@ func categorize(branches []Branch) ScanResult {
 		if b.Protected {
 			continue
 		}
-		if len(b.MergedInto) > 0 {
+		switch {
+		case len(b.MergedInto) > 0:
 			merged = append(merged, b)
-		}
-		if b.OldBucket > 0 {
-			old = append(old, b)
-		}
-		if b.Abandoned != "" {
-			abandoned = append(abandoned, b)
-		}
-		if b.Kind == LocalBranch && strings.Contains(b.UpstreamTrack, "gone") {
+		case b.Kind == LocalBranch && strings.Contains(b.UpstreamTrack, "gone"):
 			stale = append(stale, b)
-		}
-		if len(b.MergedInto) == 0 {
+		case b.Abandoned != "":
+			abandoned = append(abandoned, b)
+		case b.OldBucket > 0:
+			old = append(old, b)
+		default:
 			risky = append(risky, b)
 		}
 	}
@@ -566,6 +566,12 @@ func newModel(result ScanResult, dryRun bool) model {
 		dryRun:     dryRun,
 	}
 	m.rebuildRows()
+	for i, row := range m.rows {
+		if row.Branch != nil {
+			m.cursor = i
+			break
+		}
+	}
 	return m
 }
 
@@ -673,9 +679,12 @@ func (m model) View() string {
 		if r.Header != "" {
 			b.WriteString(headerStyle.Render(r.Header))
 			if r.Category < len(m.categories) {
-				b.WriteString(mutedStyle.Render(" - " + m.categories[r.Category].Details))
+				b.WriteString("\n  " + mutedStyle.Render(m.categories[r.Category].Details))
 			}
 			b.WriteString("\n")
+			if len(m.categories[r.Category].Branches) > 0 {
+				b.WriteString(mutedStyle.Render("  sel  type    branch                              status                         updated     author") + "\n")
+			}
 			continue
 		}
 		line := formatBranch(*r.Branch, m.selected)
@@ -704,27 +713,47 @@ func formatBranch(branch Branch, selected map[string]Branch) string {
 	if _, ok := selected[branch.Key()]; ok {
 		box = "[x]"
 	}
-	parts := []string{box, fmt.Sprintf("%-6s", branch.Kind), branch.Name}
+	updated := "-"
+	if !branch.LastCommit.IsZero() {
+		updated = branch.LastCommit.Format("2006-01-02")
+	}
+	return fmt.Sprintf(
+		"%-3s  %-6s  %-34s  %-29s  %-10s  %s",
+		box,
+		branch.Kind,
+		truncate(branch.Name, 34),
+		truncate(branchStatus(branch), 29),
+		updated,
+		truncate(branch.AuthorName, 28),
+	)
+}
+
+func branchStatus(branch Branch) string {
+	var parts []string
 	if len(branch.MergedInto) > 0 {
-		parts = append(parts, "merged:"+strings.Join(branch.MergedInto, ","))
+		parts = append(parts, "merged -> "+strings.Join(branch.MergedInto, ","))
 	}
 	if branch.OldBucket > 0 {
-		parts = append(parts, fmt.Sprintf("old:%dd+", branch.OldBucket))
+		parts = append(parts, fmt.Sprintf("old %dd+", branch.OldBucket))
 	}
 	if branch.Abandoned != "" {
-		parts = append(parts, "abandoned:"+branch.Abandoned)
+		parts = append(parts, branch.Abandoned)
 	}
-	if !branch.LastCommit.IsZero() {
-		parts = append(parts, branch.LastCommit.Format("2006-01-02"))
+	if len(parts) == 0 {
+		return "unmerged"
 	}
-	owner := strings.TrimSpace(branch.AuthorName)
-	if branch.AuthorEmail != "" {
-		owner += " <" + branch.AuthorEmail + ">"
+	return strings.Join(parts, ", ")
+}
+
+func truncate(s string, width int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= width {
+		return s
 	}
-	if owner != "" {
-		parts = append(parts, owner)
+	if width <= 3 {
+		return s[:width]
 	}
-	return strings.Join(parts, "  ")
+	return s[:width-3] + "..."
 }
 
 var (
