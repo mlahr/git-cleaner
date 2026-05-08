@@ -1,0 +1,20 @@
+# Go build outputs
+/git-cleaner
+*.test
+*.out
+coverage.out
+
+# Local tool config
+.git-cleaner.yml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
