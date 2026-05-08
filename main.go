@@ -107,7 +107,10 @@ func main() {
 		exitErr(err)
 	}
 	if !opts.NoFetch {
-		_ = runGit(ctx, "fetch", "--all", "--prune")
+		fmt.Println("Fetching remotes...")
+		if err := runGit(ctx, "fetch", "--all", "--prune"); err != nil {
+			exitErr(fmt.Errorf("fetch failed; use --no-fetch to scan without updating remotes: %w", err))
+		}
 	}
 	result, err := scan(ctx, opts)
 	if err != nil {
@@ -683,7 +686,7 @@ func (m model) View() string {
 			}
 			b.WriteString("\n")
 			if len(m.categories[r.Category].Branches) > 0 {
-				b.WriteString(mutedStyle.Render("  sel  type    branch                              status                                      updated     author") + "\n")
+				b.WriteString(mutedStyle.Render("  sel  type    branch                              updated     author            status") + "\n")
 			}
 			continue
 		}
@@ -713,26 +716,25 @@ func formatBranch(branch Branch, selected map[string]Branch, terminalWidth int) 
 	if _, ok := selected[branch.Key()]; ok {
 		box = "[x]"
 	}
-	statusWidth := 29
-	if terminalWidth > 0 {
-		statusWidth = terminalWidth - 3 - 3 - 2 - 6 - 2 - 34 - 2 - 10 - 2 - 16
-		if statusWidth < 29 {
-			statusWidth = 29
-		}
-	}
 	updated := "-"
 	if !branch.LastCommit.IsZero() {
 		updated = branch.LastCommit.Format("2006-01-02")
 	}
+	status := branchStatus(branch)
+	if terminalWidth > 0 {
+		statusWidth := terminalWidth - 3 - 3 - 2 - 6 - 2 - 34 - 2 - 10 - 2 - 16 - 2
+		if statusWidth >= 20 {
+			status = truncate(status, statusWidth)
+		}
+	}
 	return fmt.Sprintf(
-		"%-3s  %-6s  %-34s  %-*s  %-10s  %s",
+		"%-3s  %-6s  %-34s  %-10s  %-16s  %s",
 		box,
 		branch.Kind,
 		truncate(branch.Name, 34),
-		statusWidth,
-		truncate(branchStatus(branch), statusWidth),
 		updated,
 		truncate(branch.AuthorName, 16),
+		status,
 	)
 }
 
