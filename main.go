@@ -511,7 +511,7 @@ func printScan(result ScanResult) {
 	for _, cat := range result.Categories {
 		fmt.Printf("%s (%d)\n", cat.Title, len(cat.Branches))
 		for _, branch := range cat.Branches {
-			fmt.Println("  " + formatBranch(branch, nil))
+			fmt.Println("  " + formatBranch(branch, nil, 120))
 		}
 		fmt.Println()
 	}
@@ -683,11 +683,11 @@ func (m model) View() string {
 			}
 			b.WriteString("\n")
 			if len(m.categories[r.Category].Branches) > 0 {
-				b.WriteString(mutedStyle.Render("  sel  type    branch                              status                         updated     author") + "\n")
+				b.WriteString(mutedStyle.Render("  sel  type    branch                              status                                      updated     author") + "\n")
 			}
 			continue
 		}
-		line := formatBranch(*r.Branch, m.selected)
+		line := formatBranch(*r.Branch, m.selected, m.width)
 		if i == m.cursor {
 			line = cursorStyle.Render("> " + line)
 		} else {
@@ -708,23 +708,31 @@ func (m model) View() string {
 	return b.String()
 }
 
-func formatBranch(branch Branch, selected map[string]Branch) string {
+func formatBranch(branch Branch, selected map[string]Branch, terminalWidth int) string {
 	box := "[ ]"
 	if _, ok := selected[branch.Key()]; ok {
 		box = "[x]"
+	}
+	statusWidth := 29
+	if terminalWidth > 0 {
+		statusWidth = terminalWidth - 3 - 3 - 2 - 6 - 2 - 34 - 2 - 10 - 2 - 16
+		if statusWidth < 29 {
+			statusWidth = 29
+		}
 	}
 	updated := "-"
 	if !branch.LastCommit.IsZero() {
 		updated = branch.LastCommit.Format("2006-01-02")
 	}
 	return fmt.Sprintf(
-		"%-3s  %-6s  %-34s  %-29s  %-10s  %s",
+		"%-3s  %-6s  %-34s  %-*s  %-10s  %s",
 		box,
 		branch.Kind,
 		truncate(branch.Name, 34),
-		truncate(branchStatus(branch), 29),
+		statusWidth,
+		truncate(branchStatus(branch), statusWidth),
 		updated,
-		truncate(branch.AuthorName, 28),
+		truncate(branch.AuthorName, 16),
 	)
 }
 
