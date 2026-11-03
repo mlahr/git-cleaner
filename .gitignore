@@ -1,5 +1,6 @@
 # Go build outputs
 /git-cleaner
+/dist/
 *.test
 *.out
 coverage.out

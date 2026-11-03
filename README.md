@@ -17,6 +17,16 @@ A Go TUI for reviewing and deleting stale Git branches in the current repository
 
 ## Usage
 
+Install the latest release on macOS or Linux (amd64 or arm64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/MenschMachine/git-cleaner/main/install.sh | bash
+```
+
+The installer verifies the archive against the release checksums and installs to `~/.local/bin`. Set `GIT_CLEANER_INSTALL_DIR` to choose another directory, and ensure that directory is on your `PATH`. Debian packages and archives are also available on the [releases page](https://github.com/MenschMachine/git-cleaner/releases).
+
+Or run from source:
+
 ```sh
 go run .
 ```
@@ -64,3 +74,7 @@ Remote names are matched exactly. Ignored remotes are not fetched or shown for d
 - `p`: preview deletion commands
 - `d`: delete selected branches
 - `q`, `ctrl+c`: quit
+
+## Release
+
+Push a version tag such as `v1.0.0` to run CI and publish a GitHub release with GoReleaser. The release contains macOS and Linux archives for amd64 and arm64, Linux Debian packages, and `checksums.txt`.

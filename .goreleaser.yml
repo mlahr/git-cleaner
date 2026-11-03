@@ -1,0 +1,52 @@
+version: 2
+
+project_name: git-cleaner
+
+builds:
+  - id: git-cleaner
+    main: .
+    binary: git-cleaner
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - id: tarball
+    ids:
+      - git-cleaner
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+nfpms:
+  - id: deb
+    package_name: git-cleaner
+    ids:
+      - git-cleaner
+    formats:
+      - deb
+    maintainer: "Michael Lahr"
+    description: "Review and delete stale Git branches."
+    homepage: "https://github.com/MenschMachine/git-cleaner"
+    section: utils
+    priority: optional
+    bindir: /usr/bin
+    dependencies:
+      - git
+
+release:
+  github:
+    owner: MenschMachine
+    name: git-cleaner
