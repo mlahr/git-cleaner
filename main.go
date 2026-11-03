@@ -23,18 +23,20 @@ var defaultProtected = []string{"main", "master", "develop", "dev", "development
 var defaultOldDays = []int{30, 60, 90}
 
 type Config struct {
-	Protected []string `yaml:"protected"`
-	OldDays   []int    `yaml:"old_days"`
+	Protected     []string `yaml:"protected"`
+	OldDays       []int    `yaml:"old_days"`
+	IgnoreRemotes []string `yaml:"ignore_remotes"`
 }
 
 type Options struct {
-	ConfigPath string
-	Protected  []string
-	OldDays    []int
-	DryRun     bool
-	NoFetch    bool
-	ListOnly   bool
-	InitConfig bool
+	ConfigPath    string
+	Protected     []string
+	OldDays       []int
+	IgnoreRemotes []string
+	DryRun        bool
+	NoFetch       bool
+	ListOnly      bool
+	InitConfig    bool
 }
 
 type BranchKind string
@@ -108,7 +110,7 @@ func main() {
 	}
 	if !opts.NoFetch {
 		fmt.Println("Fetching remotes...")
-		if err := runGit(ctx, "fetch", "--all", "--prune"); err != nil {
+		if err := fetchRemotes(ctx, opts.IgnoreRemotes); err != nil {
 			exitErr(fmt.Errorf("fetch failed; use --no-fetch to scan without updating remotes: %w", err))
 		}
 	}
@@ -137,12 +139,13 @@ func main() {
 }
 
 func parseOptions(args []string) (Options, error) {
-	var protectedCSV, oldDaysCSV string
+	var protectedCSV, oldDaysCSV, ignoreRemotesCSV string
 	opts := Options{}
 	fs := flag.NewFlagSet("git-cleaner", flag.ContinueOnError)
 	fs.StringVar(&opts.ConfigPath, "config", ".git-cleaner.yml", "local config path")
 	fs.StringVar(&protectedCSV, "protected", "", "comma-separated protected branch patterns")
 	fs.StringVar(&oldDaysCSV, "old-days", "", "comma-separated old branch thresholds in days")
+	fs.StringVar(&ignoreRemotesCSV, "ignore-remotes", "", "comma-separated remote names to ignore")
 	fs.BoolVar(&opts.DryRun, "dry-run", false, "print deletion commands without running them")
 	fs.BoolVar(&opts.NoFetch, "no-fetch", false, "skip git fetch --all --prune before scanning")
 	fs.BoolVar(&opts.ListOnly, "list", false, "print grouped branch candidates without opening the TUI")
@@ -161,6 +164,7 @@ func parseOptions(args []string) (Options, error) {
 		if len(loaded.OldDays) > 0 {
 			cfg.OldDays = loaded.OldDays
 		}
+		cfg.IgnoreRemotes = loaded.IgnoreRemotes
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return opts, err
 	}
@@ -174,8 +178,12 @@ func parseOptions(args []string) (Options, error) {
 		}
 		cfg.OldDays = days
 	}
+	if ignoreRemotesCSV != "" {
+		cfg.IgnoreRemotes = splitCSV(ignoreRemotesCSV)
+	}
 	opts.Protected = uniqueStrings(cfg.Protected)
 	opts.OldDays = uniqueInts(cfg.OldDays)
+	opts.IgnoreRemotes = uniqueStrings(cfg.IgnoreRemotes)
 	sort.Ints(opts.OldDays)
 	return opts, nil
 }
@@ -196,8 +204,9 @@ func writeDefaultConfig(file string) error {
 		return err
 	}
 	cfg := Config{
-		Protected: append([]string{}, defaultProtected...),
-		OldDays:   append([]int{}, defaultOldDays...),
+		Protected:     append([]string{}, defaultProtected...),
+		OldDays:       append([]int{}, defaultOldDays...),
+		IgnoreRemotes: []string{},
 	}
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -215,7 +224,12 @@ func scan(ctx context.Context, opts Options) (ScanResult, error) {
 	if err != nil {
 		return ScanResult{}, err
 	}
-	all := append(locals, remotes...)
+	for _, remote := range remotes {
+		if !containsString(opts.IgnoreRemotes, remote.Remote) {
+			locals = append(locals, remote)
+		}
+	}
+	all := locals
 	localNames := map[string]bool{}
 	remoteNames := map[string]bool{}
 	for i := range all {
@@ -282,7 +296,7 @@ func listBranches(ctx context.Context, kind BranchKind) ([]Branch, error) {
 			UpstreamTrack: parts[7],
 		}
 		if kind == RemoteBranch {
-			remote, short, ok := strings.Cut(name, "/")
+			remote, short, ok := strings.Cut(strings.TrimPrefix(fullRef, "refs/remotes/"), "/")
 			if ok && short != "" {
 				b.Remote = remote
 				b.ShortName = short
@@ -410,6 +424,24 @@ func ensureGitRepo(ctx context.Context) error {
 		return errors.New("current directory is not a Git repository")
 	}
 	return nil
+}
+
+func fetchRemotes(ctx context.Context, ignored []string) error {
+	args := make([]string, 0, len(ignored)*2+3)
+	for _, name := range ignored {
+		args = append(args, "-c", "remote."+name+".skipDefaultUpdate=true")
+	}
+	args = append(args, "fetch", "--all", "--prune")
+	return runGit(ctx, args...)
+}
+
+func containsString(values []string, value string) bool {
+	for _, v := range values {
+		if v == value {
+			return true
+		}
+	}
+	return false
 }
 
 func gitOutput(ctx context.Context, args ...string) (string, error) {
