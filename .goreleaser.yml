@@ -39,7 +39,7 @@ nfpms:
       - deb
     maintainer: "Michael Lahr"
     description: "Review and delete stale Git branches."
-    homepage: "https://github.com/MenschMachine/git-cleaner"
+    homepage: "https://github.com/mlahr/git-cleaner"
     section: utils
     priority: optional
     bindir: /usr/bin
@@ -48,5 +48,5 @@ nfpms:
 
 release:
   github:
-    owner: MenschMachine
+    owner: mlahr
     name: git-cleaner

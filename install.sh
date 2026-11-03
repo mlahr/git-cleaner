@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly RELEASE_BASE_URL="https://github.com/MenschMachine/git-cleaner/releases/latest/download"
+readonly RELEASE_BASE_URL="https://github.com/mlahr/git-cleaner/releases/latest/download"
 
 die() {
   printf 'install.sh: %s\n' "$*" >&2
